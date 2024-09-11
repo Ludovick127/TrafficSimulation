@@ -23,7 +23,6 @@ public class TrafficSimulation {
             }
         };
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.add(new Traffic());
         frame.setSize(1080, 200);
         frame.setMaximumSize(new Dimension(2080, 200));
         frame.setContentPane(new Traffic());
