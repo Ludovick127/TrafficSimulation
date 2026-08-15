@@ -6,7 +6,11 @@ plugins {
 group 'com.example'
 version '1.0-SNAPSHOT'
 
-sourceCompatibility = '1.8'
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
 
 repositories {
     mavenCentral()
@@ -19,6 +23,10 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
 }
 
+test {
+    useJUnit()
+}
+
 application {
-    mainClassName = 'TrafficSimulation'
+    mainClass = 'TrafficSimulation'
 }

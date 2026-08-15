@@ -5,10 +5,15 @@ import java.awt.Dimension;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
  * TrafficSimulation class to simulate traffic using a graphical interface.
  */
 public class TrafficSimulation {
+
+    private static final Logger logger = LogManager.getLogger(TrafficSimulation.class);
 
     public static final float[] FRACTIONS = {0f, 0.33f, 0.34f, 0.66f, 0.67f, 1f};
     public static final Color[] COLORS = {
@@ -62,7 +67,7 @@ public class TrafficSimulation {
             float progress = (float) i / 100;
             Color color = blendColors(FRACTIONS, COLORS, progress);
             Car car = new Car(i, 50, 5 + t, color, t);
-            System.out.println(car);
+            logger.info("Generated {}", car);
             cars.add(car);
             t++;
         }
