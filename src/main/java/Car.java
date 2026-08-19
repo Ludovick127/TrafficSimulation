@@ -140,7 +140,7 @@ public class Car {
      */
     public void slowX() {
         if (v1X > minSpeed) {
-            v1X -= 2 * acceleration;
+            v1X = Math.max(minSpeed, v1X - 2 * acceleration);
             x += v1X;
         } else {
             x += minSpeed;

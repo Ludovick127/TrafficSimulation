@@ -27,5 +27,24 @@ This project simulates traffic with cars moving along predefined routes. The sim
 
    ```sh
    gradle build
+   ```
+
+### Run the Simulation
+
+Run the following command to start the simulation:
+
+```sh
+gradle run
+```
+
+### Run the Tests
+
+Run the following command to execute the unit tests:
+
+```sh
+gradle test
+```
+
+## Screenshot
 
 ![image](https://user-images.githubusercontent.com/113550815/190244693-eb3eb7ea-6c8c-41d5-a05c-6083e73bed35.png)

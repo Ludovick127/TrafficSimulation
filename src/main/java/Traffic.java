@@ -13,7 +13,7 @@ import org.apache.logging.log4j.Logger;
 public class Traffic extends JPanel implements Runnable {
 
     private static final Logger logger = LogManager.getLogger(Traffic.class);
-    private static Thread thread;
+    private Thread thread;
     private final List<List<Car>> carLists;
     private final int FPS = 10;
     private final int targetTime = 1000 / FPS;
@@ -37,7 +37,8 @@ public class Traffic extends JPanel implements Runnable {
     public void addNotify() {
         super.addNotify();
         if (thread == null) {
-            thread = new Thread(this);
+            thread = new Thread(this, "traffic-simulation");
+            thread.setDaemon(true);
             thread.start();
         }
     }
@@ -88,8 +89,10 @@ public class Traffic extends JPanel implements Runnable {
 
             try {
                 Thread.sleep(Math.max(waitTime, 0));
-            } catch (Exception e) {
-                logger.error("Error in run method", e);
+            } catch (InterruptedException e) {
+                logger.error("Simulation thread interrupted", e);
+                Thread.currentThread().interrupt();
+                running = false;
             }
         }
     }
