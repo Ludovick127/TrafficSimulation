@@ -22,18 +22,18 @@ public class Traffic extends JPanel implements Runnable {
     private final int targetTime = 1000 / FPS;
     private boolean running = true;
 
-    // Overtaking thresholds tuned for screen pixels - French code de la route - stricter right lane mandatory
-    private static final double OVERTAKE_TRIGGER = 32.0;
-    private static final double SAFE_FOLLOW = 22.0;
+    // Overtaking thresholds tuned for screen pixels - French code de la route - voie de droite obligatoire stricte
+    private static final double OVERTAKE_TRIGGER = 30.0;
+    private static final double SAFE_FOLLOW = 20.0;
     private static final double STOP_DIST = 7.0;
-    private static final double LANE_SAFE_FRONT = 32.0;
-    private static final double LANE_SAFE_BACK = 18.0;
-    private static final double OVERTAKE_BLOCK_DIST = 55.0;
-    private static final double RIGHT_LANE_BLOCK_FRONT = 26.0; // interdiction dépasser par la droite - plus permissif
-    private static final double RIGHT_LANE_BLOCK_BACK = 14.0;
-    private static final double RETURN_SAFE_FRONT = 10.0; // très permissif pour rabattement rapide
-    private static final double RETURN_SAFE_BACK = 6.0;
-    private static final int FORCED_RETURN_TICKS = 70; // ~2.3 sec, force retour si bloqué trop longtemps
+    private static final double LANE_SAFE_FRONT = 28.0;
+    private static final double LANE_SAFE_BACK = 16.0;
+    private static final double OVERTAKE_BLOCK_DIST = 45.0;
+    private static final double RIGHT_LANE_BLOCK_FRONT = 32.0; // interdiction dépasser par la droite - très stricte
+    private static final double RIGHT_LANE_BLOCK_BACK = 16.0;
+    private static final double RETURN_SAFE_FRONT = 8.0; // ultra permissif pour rabattement rapide (voie de droite)
+    private static final double RETURN_SAFE_BACK = 5.0;
+    private static final int FORCED_RETURN_TICKS = 60; // ~2 sec, force retour droite si oublié
 
     public Traffic(List<List<Car>> carLists) {
         this(carLists, new SilverstoneCircuit());
@@ -461,8 +461,8 @@ public class Traffic extends JPanel implements Runnable {
             double delta = (other.getProgress() - me.getProgress() + 1.0) % 1.0;
             double distAhead = delta * targetTotalLength;
             double distBehind = (1 - delta) * targetTotalLength;
-            if (distAhead < 5.0 && distAhead > 0.5) return false;
-            if (distBehind < 3.0 && distBehind > 0.5) return false;
+            if (distAhead < 4.0 && distAhead > 0.5) return false;
+            if (distBehind < 2.0 && distBehind > 0.5) return false;
         }
         return true;
     }
@@ -559,15 +559,26 @@ public class Traffic extends JPanel implements Runnable {
             String info = circuit.getInfo(totalCars);
             fm = g2.getFontMetrics(); tw = fm.stringWidth(info);
             g2.drawString(info, w/2 - tw/2, 46);
-            // also show overtaking indicator
+            // Lane occupancy HUD - proof voie de droite obligatoire
+            long rightCount = carLists.size()>0 ? carLists.get(0).size() : 0;
+            long leftCount = carLists.size()>1 ? carLists.get(1).size() : 0;
+            long left2Count = carLists.size()>2 ? carLists.get(2).size() : 0;
             long overtakingCount = carLists.stream().flatMap(List::stream).filter(Car::isOvertaking).count();
-            if (overtakingCount>0) {
-                g2.setColor(new Color(255,215,0));
-                g2.setFont(new Font("SansSerif", Font.BOLD, 11));
-                String overt = overtakingCount + " dépassement(s) en cours";
-                fm = g2.getFontMetrics(); tw = fm.stringWidth(overt);
-                g2.drawString(overt, w/2 - tw/2, 62);
-            }
+            g2.setFont(new Font("SansSerif", Font.BOLD, 11));
+            String hud = String.format("Voie de droite (exterieur) : %d  |  Voie de gauche: %d" + (left2Count>0 ? "  |  Voie 3: %d" : "") + "  |  Depassements: %d / %d", rightCount, leftCount, left2Count, overtakingCount, totalCars);
+            fm = g2.getFontMetrics(); tw = fm.stringWidth(hud);
+            g2.setColor(new Color(0,0,0,150));
+            g2.fillRoundRect(w/2 - tw/2 -6, 52, tw+12, 16, 8,8);
+            g2.setColor(new Color(255,215,0));
+            g2.drawString(hud, w/2 - tw/2, 64);
+            // Legend
+            g2.setFont(new Font("SansSerif", Font.PLAIN, 9));
+            String leg = "Voie de droite = exterieur (bordure exterieure, par defaut) - Voie de gauche = interieur (depassement uniquement)";
+            fm = g2.getFontMetrics(); tw = fm.stringWidth(leg);
+            g2.setColor(new Color(0,0,0,120));
+            g2.fillRoundRect(w/2 - tw/2 -5, h-20, tw+10, 14, 6,6);
+            g2.setColor(Color.WHITE);
+            g2.drawString(leg, w/2 - tw/2, h-10);
             carLists.forEach(cars -> drawCars(g, cars));
         } else {
             g.setColor(Color.DARK_GRAY);
