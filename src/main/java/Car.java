@@ -4,6 +4,7 @@ import java.awt.*;
  * The Car class represents a car in the traffic simulation.
  * It contains properties for the car's position, speed, and color,
  * and methods to manipulate the car's movement.
+ * Supports both classic straight-road mode (x/y) and Silverstone circuit mode (trackProgress + lane).
  */
 public class Car {
     private final int id;
@@ -16,6 +17,16 @@ public class Car {
     private int v1Y = v0;
     private final int acceleration = 1;
     private final Color color;
+
+    // Silverstone circuit fields
+    private double trackProgress = 0.0; // 0..1 fraction of lap
+    private int lane = -1; // -1 = classic mode, 0/1/2 = circuit lanes
+    private int trackSpeed = v0; // current speed along track (pixels per tick equivalent)
+
+    // Overtaking (code de la route: voie de droite obligatoire)
+    private boolean overtaking = false;
+    private Car overtakeTarget = null;
+    private int leftLaneTicks = 0; // ticks spent in left lane not overtaking (for forced return)
 
     /**
      * Constructs a Car with the specified position, maximum speed, color, and ID.
@@ -32,6 +43,35 @@ public class Car {
         this.maxSpeed = maxSpeed;
         this.color = color;
         this.id = id;
+        this.lane = -1;
+        this.trackProgress = 0.0;
+        this.trackSpeed = v0;
+    }
+
+    /**
+     * Constructor for Silverstone circuit mode.
+     * @param trackProgress initial progress 0..1 around lap
+     * @param lane lane index 0..2
+     * @param maxSpeed maximum speed
+     * @param color color
+     * @param id id
+     */
+    public Car(double trackProgress, int lane, int maxSpeed, Color color, int id) {
+        this.x = 0;
+        this.y = 0;
+        this.maxSpeed = maxSpeed;
+        this.color = color;
+        this.id = id;
+        this.lane = lane;
+        this.trackProgress = wrapProgress(trackProgress);
+        this.trackSpeed = v0;
+        this.v1X = v0;
+    }
+
+    private static double wrapProgress(double p) {
+        p = p % 1.0;
+        if (p < 0) p += 1.0;
+        return p;
     }
 
     /**
@@ -79,6 +119,24 @@ public class Car {
         return y;
     }
 
+    // ---- Circuit getters/setters ----
+    public double getProgress() { return trackProgress; }
+    public void setProgress(double p) { this.trackProgress = wrapProgress(p); }
+    public int getLane() { return lane; }
+    public void setLane(int lane) { this.lane = lane; }
+    public boolean isCircuitMode() { return lane >= 0; }
+    public int getMaxSpeed() { return maxSpeed; }
+    public int getTrackSpeed() { return trackSpeed; }
+    public void setTrackSpeed(int s) { this.trackSpeed = Math.max(minSpeed, Math.min(maxSpeed, s)); }
+    public int getV1X() { return v1X; }
+    public boolean isOvertaking() { return overtaking; }
+    public void setOvertaking(boolean o) { this.overtaking = o; if (!o) leftLaneTicks = 0; }
+    public Car getOvertakeTarget() { return overtakeTarget; }
+    public void setOvertakeTarget(Car c) { this.overtakeTarget = c; }
+    public int getLeftLaneTicks() { return leftLaneTicks; }
+    public void incrementLeftLaneTicks() { leftLaneTicks++; }
+    public void resetLeftLaneTicks() { leftLaneTicks = 0; }
+
     /**
      * Moves the car forward along the x-axis by its maximum speed.
      */
@@ -112,6 +170,7 @@ public class Car {
      */
     public void resetV1X() {
         v1X = v0;
+        trackSpeed = v0;
     }
 
     /**
@@ -200,6 +259,48 @@ public class Car {
         }
     }
 
+    // ---- Circuit speed control (operates on trackSpeed, not x) ----
+    public void accelerateTrack() {
+        if (trackSpeed < maxSpeed) {
+            trackSpeed += acceleration;
+            // keep v1X in sync for logging compatibility
+            v1X = trackSpeed;
+        }
+        // movement is handled by Traffic advancing progress
+    }
+
+    public void slowTrack() {
+        if (trackSpeed > minSpeed) {
+            trackSpeed = Math.max(minSpeed, trackSpeed - 2 * acceleration);
+            v1X = trackSpeed;
+        }
+    }
+
+    public void stopTrack() {
+        // keep speed at minSpeed but don't advance extra; Traffic will advance by minSpeed
+        trackSpeed = minSpeed;
+        v1X = minSpeed;
+    }
+
+    /**
+     * Advance progress by current trackSpeed relative to lane total length.
+     * @param totalLengthScreen total screen length of lane path
+     */
+    public void advanceTrack(double totalLengthScreen) {
+        if (totalLengthScreen < 1e-6) return;
+        double delta = (double) trackSpeed / totalLengthScreen;
+        trackProgress = wrapProgress(trackProgress + delta);
+    }
+
+    /**
+     * Advance progress by minSpeed (used when stopped but still creeping)
+     */
+    public void advanceTrackMin(double totalLengthScreen) {
+        if (totalLengthScreen < 1e-6) return;
+        double delta = (double) minSpeed / totalLengthScreen;
+        trackProgress = wrapProgress(trackProgress + delta);
+    }
+
     /**
      * Returns the color of the car.
      *
@@ -216,6 +317,16 @@ public class Car {
      */
     @Override
     public String toString() {
+        if (isCircuitMode()) {
+            return "Car{" +
+                    "id=" + id +
+                    ", progress=" + String.format("%.3f", trackProgress) +
+                    ", lane=" + lane +
+                    ", speed=" + trackSpeed +
+                    ", maxSpeed=" + maxSpeed +
+                    ", color=" + color +
+                    '}';
+        }
         return "Car{" +
                 "id=" + id +
                 ", x=" + x +
