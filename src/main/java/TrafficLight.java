@@ -7,8 +7,9 @@ import java.util.Random;
 public class TrafficLight {
     public enum State { GREEN, YELLOW, RED }
 
-    private final double progress; // position along track 0..1 where stop line is
+    private final double progress; // position along road 0..1 where stop line is
     private final String name; // e.g. "7th & 42nd"
+    private final int roadId; // 0=outer, 1=vertical, 2=horizontal
     private State state = State.GREEN;
     private int timer = 0;
     private int currentDuration;
@@ -19,11 +20,12 @@ public class TrafficLight {
     private static final int GREEN_MIN = 90, GREEN_MAX = 180;
     private static final int RED_MIN = 90, RED_MAX = 180;
 
-    public TrafficLight(double progress, String name) {
+    public TrafficLight(double progress, String name) { this(progress, name, 0); }
+    public TrafficLight(double progress, String name, int roadId) {
         this.progress = ((progress % 1.0) + 1.0) % 1.0;
         this.name = name;
+        this.roadId = roadId;
         this.currentDuration = randomGreen();
-        // stagger start times randomly
         this.timer = rnd.nextInt(60);
     }
 
@@ -32,6 +34,7 @@ public class TrafficLight {
 
     public double getProgress() { return progress; }
     public String getName() { return name; }
+    public int getRoadId() { return roadId; }
     public State getState() { return state; }
     public boolean isGreen() { return state == State.GREEN; }
     public boolean isYellow() { return state == State.YELLOW; }
@@ -59,9 +62,16 @@ public class TrafficLight {
         }
     }
 
-    /** Distance ahead from car to light along track (0..totalLength), wraps */
+    /** Distance ahead from car to light along its road (0..totalLength), wraps for loops, clamped for straight */
     public double distanceToLight(Car car, double totalLength) {
+        if (car.getRoadId() != roadId) return Double.MAX_VALUE;
         double delta = (progress - car.getProgress() + 1.0) % 1.0;
+        // For straight inner roads (not loops), delta >0.5 means light behind, not ahead
+        if (car.getRoadId() != 0) {
+            // inner roads are not loops in our design (straight), so only ahead if progress < light progress
+            if (car.getProgress() > progress) return Double.MAX_VALUE;
+            delta = progress - car.getProgress();
+        }
         return delta * totalLength;
     }
 

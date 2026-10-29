@@ -23,6 +23,8 @@ public class ManhattanCircuit implements Circuit {
     // City intersections with traffic lights and roundabouts - French code de la route
     private final List<TrafficLight> trafficLights = new ArrayList<>();
     private final List<Roundabout> roundabouts = new ArrayList<>();
+    private final List<InnerRoad> innerRoads = new ArrayList<>();
+    private TrafficLight centralLight;
 
     // Manhattan grid - realistic block sizes (approx 80m x 270m)
     private static final double[] AVENUES_X = {0, 180, 360, 540, 720, 900};
@@ -81,6 +83,22 @@ public class ManhattanCircuit implements Circuit {
         roundabouts.add(new Roundabout(0.28, 0.035, "Columbus Circle (7th & 59th)"));
         roundabouts.add(new Roundabout(0.50, 0.035, "Grand Army Plaza (5th & 59th)"));
         roundabouts.add(new Roundabout(0.05, 0.030, "Times Sq (7th & 42nd) - mini"));
+
+        // Inner crossing roads - vrais intersections entre plusieurs routes qui se croisent
+        innerRoads.add(new InnerRoad("6th Ave N-S", new double[][]{{360, 80}, {360, 1020}}, 2, 0.297));
+        innerRoads.add(new InnerRoad("42nd St E-W", new double[][]{{80, 360}, {820, 360}}, 2, 0.378));
+        // Central intersection 6th & 42nd - two lights alternés (quand vertical vert, horizontal rouge)
+        TrafficLight vertLight = new TrafficLight(0.297, "6th & 42nd N-S", 1);
+        TrafficLight horizLight = new TrafficLight(0.378, "6th & 42nd E-W", 2);
+        // force opposite phases: start one green, one red
+        trafficLights.add(vertLight);
+        trafficLights.add(horizLight);
+        centralLight = vertLight; // for reference
+        // Additional lights where inner roads meet outer loop (4 connections)
+        trafficLights.add(new TrafficLight(0.083, "7th & 42nd outer<->42nd", 0)); // outer west x inner horiz west
+        trafficLights.add(new TrafficLight(0.696, "Lex & 42nd outer<->42nd", 0));
+        trafficLights.add(new TrafficLight(0.363, "6th & 59th outer<->6th", 0));
+        trafficLights.add(new TrafficLight(0.833, "6th & 34th outer<->6th", 0));
     }
 
     @Override public String getName() { return "Manhattan - Midtown Loop"; }
@@ -373,6 +391,38 @@ public class ManhattanCircuit implements Circuit {
         g2.setFont(new Font("SansSerif", Font.BOLD, 8));
         g2.drawString("Times Sq", (int)ts.x+16, (int)ts.y+4);
 
+        // Inner crossing roads - vrais intersections avec plusieurs routes qui se croisent
+        for (InnerRoad ir : innerRoads) {
+            List<Point2D.Double> roadCenter = ir.getCenterScreen(pw, ph, minX_M, maxX_M, minY_M, maxY_M, rangeX_M, rangeY_M);
+            if (roadCenter.size()<2) continue;
+            Path2D.Double roadPath = new Path2D.Double();
+            roadPath.moveTo(roadCenter.get(0).x, roadCenter.get(0).y);
+            for(int i=1;i<roadCenter.size();i++) roadPath.lineTo(roadCenter.get(i).x, roadCenter.get(i).y);
+            // curb
+            g2.setStroke(new BasicStroke(24f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setColor(new Color(30,30,30));
+            g2.draw(roadPath);
+            // asphalt 2 lanes
+            g2.setStroke(new BasicStroke(20f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setColor(new Color(50,50,50));
+            g2.draw(roadPath);
+            // divider for 2 lanes
+            g2.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 0, new float[]{10,7}, 0));
+            g2.setColor(Color.WHITE);
+            g2.draw(roadPath);
+            // label
+            g2.setColor(Color.WHITE);
+            g2.setFont(new Font("SansSerif", Font.BOLD, 7));
+            Point2D.Double mid = roadCenter.get(roadCenter.size()/2);
+            g2.drawString(ir.name, (int)mid.x+4, (int)mid.y-6);
+        }
+        // Central intersection highlight where 6th & 42nd cross
+        Point2D.Double centInt = meterToScreen(360, 360, pw, ph);
+        g2.setColor(new Color(255,220,0,40));
+        g2.fillOval((int)centInt.x-12, (int)centInt.y-12, 24,24);
+        g2.setColor(new Color(255,200,0));
+        g2.drawOval((int)centInt.x-12, (int)centInt.y-12, 24,24);
+
         // Draw the 3-lane circuit road on top of buildings - outer loop
         Path2D.Double centerPath=createPath(center,true);
         g2.setStroke(new BasicStroke((float)(TOTAL_ROAD_WIDTH + OUTER_BORDER_EXTRA), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
@@ -520,8 +570,105 @@ public class ManhattanCircuit implements Circuit {
         g2.drawString("Empire State", (int)esb.x-18, (int)esb.y-6);
     }
 
+    public double getInnerRoadLength(int roadId, int lane, int pw, int ph) {
+        if (roadId <0 || roadId >= innerRoads.size()) return 0;
+        InnerRoad ir = innerRoads.get(roadId);
+        List<Point2D.Double> ctr = ir.getCenterScreen(pw, ph, minX_M, maxX_M, minY_M, maxY_M, rangeX_M, rangeY_M);
+        if (ctr.size()<2) return 0;
+        // lane offset
+        double offset = (ir.laneCount==2) ? (lane==0 ? -5 : 5) : 0;
+        List<Point2D.Double> lanePts = offsetInnerRoad(ctr, offset);
+        double tot=0; for(int i=0;i<lanePts.size()-1;i++) tot+=lanePts.get(i).distance(lanePts.get(i+1));
+        // for straight road, not closed
+        return tot;
+    }
+    public Point2D.Double getInnerRoadPosition(int roadId, int lane, double progress, int pw, int ph) {
+        if (roadId <0 || roadId >= innerRoads.size()) return new Point2D.Double(0,0);
+        InnerRoad ir = innerRoads.get(roadId);
+        List<Point2D.Double> ctr = ir.getCenterScreen(pw, ph, minX_M, maxX_M, minY_M, maxY_M, rangeX_M, rangeY_M);
+        double offset = (ir.laneCount==2) ? (lane==0 ? -5 : 5) : 0;
+        List<Point2D.Double> lanePts = offsetInnerRoad(ctr, offset);
+        if (lanePts.isEmpty()) return new Point2D.Double(0,0);
+        progress = Math.max(0, Math.min(1, progress));
+        double tot=0; for(int i=0;i<lanePts.size()-1;i++) tot+=lanePts.get(i).distance(lanePts.get(i+1));
+        double target = progress * tot;
+        double cum=0;
+        for(int i=0;i<lanePts.size()-1;i++){
+            Point2D.Double a=lanePts.get(i), b=lanePts.get(i+1);
+            double seg=a.distance(b);
+            if(target>=cum && target<cum+seg){ double t=(target-cum)/seg; return new Point2D.Double(a.x+t*(b.x-a.x), a.y+t*(b.y-a.y)); }
+            cum+=seg;
+        }
+        return lanePts.get(lanePts.size()-1);
+    }
+    public double getInnerRoadAngle(int roadId, int lane, double progress, int pw,int ph){
+        if (roadId <0 || roadId >= innerRoads.size()) return 0;
+        InnerRoad ir = innerRoads.get(roadId);
+        List<Point2D.Double> ctr = ir.getCenterScreen(pw, ph, minX_M, maxX_M, minY_M, maxY_M, rangeX_M, rangeY_M);
+        double offset = (ir.laneCount==2) ? (lane==0 ? -5 : 5) : 0;
+        List<Point2D.Double> lanePts = offsetInnerRoad(ctr, offset);
+        if (lanePts.size()<2) return 0;
+        double tot=0; for(int i=0;i<lanePts.size()-1;i++) tot+=lanePts.get(i).distance(lanePts.get(i+1));
+        double target = Math.max(0,Math.min(1,progress))*tot;
+        double cum=0;
+        for(int i=0;i<lanePts.size()-1;i++){
+            Point2D.Double a=lanePts.get(i), b=lanePts.get(i+1);
+            double seg=a.distance(b);
+            if(target>=cum && target<cum+seg) return Math.atan2(b.y-a.y,b.x-a.x);
+            cum+=seg;
+        }
+        return 0;
+    }
+    private List<Point2D.Double> offsetInnerRoad(List<Point2D.Double> ctr, double offset){
+        if(offset==0) return ctr;
+        // straight road: offset perpendicular to direction
+        List<Point2D.Double> out=new ArrayList<>();
+        for(int i=0;i<ctr.size();i++){
+            Point2D.Double curr=ctr.get(i);
+            Point2D.Double prev = i>0 ? ctr.get(i-1) : ctr.get(0);
+            Point2D.Double next = i<ctr.size()-1 ? ctr.get(i+1) : ctr.get(ctr.size()-1);
+            double dx=next.x-prev.x, dy=next.y-prev.y;
+            double len=Math.hypot(dx,dy);
+            if(len<1e-6){ out.add(new Point2D.Double(curr.x,curr.y)); continue; }
+            double nx=-dy/len, ny=dx/len;
+            out.add(new Point2D.Double(curr.x+nx*offset, curr.y+ny*offset));
+        }
+        return out;
+    }
+
     @Override
     public String getInfo(int totalCars) {
-        return String.format("Manhattan Midtown • %.1f km • 3 voies • %d voitures", getTotalLengthMeters()/1000.0, totalCars);
+        return String.format("Manhattan Midtown • %.1f km • 3 voies + 2 croisements • %d voitures", getTotalLengthMeters()/1000.0, totalCars);
+    }
+
+    // Inner crossing roads - for vrais intersections
+    public List<InnerRoad> getInnerRoads() { return innerRoads; }
+    public TrafficLight getCentralLight() { return centralLight; }
+
+    public static class InnerRoad {
+        public final String name;
+        public final List<Point2D.Double> points;
+        public final int laneCount;
+        public final double intersectionProgress; // where it meets center (for light)
+        public final double totalLengthM;
+        public InnerRoad(String name, double[][] pts, int lanes, double interProg) {
+            this.name = name;
+            this.laneCount = lanes;
+            this.intersectionProgress = interProg;
+            this.points = new ArrayList<>();
+            for (double[] p : pts) points.add(new Point2D.Double(p[0], p[1]));
+            double tot=0;
+            for(int i=0;i<points.size()-1;i++) tot+=points.get(i).distance(points.get(i+1));
+            this.totalLengthM = tot;
+        }
+        public List<Point2D.Double> getCenterScreen(int pw,int ph, double minX_M,double maxX_M,double minY_M,double maxY_M,double rangeX_M,double rangeY_M) {
+            int margin=55; int aw=pw-2*margin; int ah=ph-2*margin-15;
+            double scale=Math.min(aw/rangeX_M, ah/rangeY_M);
+            double ex=aw - rangeX_M*scale, ey=ah - rangeY_M*scale;
+            double ox=margin+ex/2, oy=margin+15+ey/2;
+            List<Point2D.Double> out=new ArrayList<>();
+            for(Point2D.Double pm: points){ double sx=ox+(pm.x-minX_M)*scale; double sy=oy+(maxY_M-pm.y)*scale; out.add(new Point2D.Double(sx,sy)); }
+            return out;
+        }
     }
 }

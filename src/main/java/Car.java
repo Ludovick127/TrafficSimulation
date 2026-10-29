@@ -11,16 +11,17 @@ public class Car {
     private int x;
     private int y;
     private final int maxSpeed;
-    private final int minSpeed = 1;
-    private final int v0 = 1;
+    private final int minSpeed = 0; // allow full stop at red light / yield
+    private final int v0 = 2; // initial rolling speed
     private int v1X = v0;
     private int v1Y = v0;
     private final int acceleration = 1;
     private final Color color;
 
-    // Silverstone circuit fields
-    private double trackProgress = 0.0; // 0..1 fraction of lap
+    // Circuit fields
+    private double trackProgress = 0.0; // 0..1 fraction of road
     private int lane = -1; // -1 = classic mode, 0/1/2 = circuit lanes
+    private int roadId = 0; // 0=outer loop (Manhattan) / main circuit, 1=vertical 6th Ave, 2=horizontal 42nd St
     private int trackSpeed = v0; // current speed along track (pixels per tick equivalent)
 
     // Overtaking (code de la route: voie de droite obligatoire)
@@ -57,12 +58,16 @@ public class Car {
      * @param id id
      */
     public Car(double trackProgress, int lane, int maxSpeed, Color color, int id) {
+        this(trackProgress, lane, maxSpeed, color, id, 0);
+    }
+    public Car(double trackProgress, int lane, int maxSpeed, Color color, int id, int roadId) {
         this.x = 0;
         this.y = 0;
         this.maxSpeed = maxSpeed;
         this.color = color;
         this.id = id;
         this.lane = lane;
+        this.roadId = roadId;
         this.trackProgress = wrapProgress(trackProgress);
         this.trackSpeed = v0;
         this.v1X = v0;
@@ -124,6 +129,8 @@ public class Car {
     public void setProgress(double p) { this.trackProgress = wrapProgress(p); }
     public int getLane() { return lane; }
     public void setLane(int lane) { this.lane = lane; }
+    public int getRoadId() { return roadId; }
+    public void setRoadId(int roadId) { this.roadId = roadId; }
     public boolean isCircuitMode() { return lane >= 0; }
     public int getMaxSpeed() { return maxSpeed; }
     public int getTrackSpeed() { return trackSpeed; }
@@ -262,24 +269,33 @@ public class Car {
     // ---- Circuit speed control (operates on trackSpeed, not x) ----
     public void accelerateTrack() {
         if (trackSpeed < maxSpeed) {
-            trackSpeed += acceleration;
-            // keep v1X in sync for logging compatibility
+            trackSpeed += acceleration; // linear acceleration to cruise
             v1X = trackSpeed;
         }
-        // movement is handled by Traffic advancing progress
     }
 
     public void slowTrack() {
         if (trackSpeed > minSpeed) {
-            trackSpeed = Math.max(minSpeed, trackSpeed - 2 * acceleration);
+            trackSpeed = Math.max(minSpeed, trackSpeed - acceleration); // linear deceleration
+            v1X = trackSpeed;
+        }
+    }
+
+    public void brakeTrack() {
+        if (trackSpeed > minSpeed) {
+            trackSpeed = Math.max(minSpeed, trackSpeed - 2 * acceleration); // stronger braking
             v1X = trackSpeed;
         }
     }
 
     public void stopTrack() {
-        // keep speed at minSpeed but don't advance extra; Traffic will advance by minSpeed
-        trackSpeed = minSpeed;
+        trackSpeed = minSpeed; // full stop 0 - will not advance
         v1X = minSpeed;
+    }
+
+    public void forceStopAtLight() {
+        trackSpeed = 0;
+        v1X = 0;
     }
 
     /**

@@ -78,7 +78,14 @@ public class Traffic extends JPanel implements Runnable {
         if (w <= 0 || h <= 0) return;
         for (List<Car> cars : carLists) for (Car car : cars) {
             if (!car.isCircuitMode()) continue;
-            Point2D.Double pos = circuit.getPosition(car.getLane(), car.getProgress(), w, h);
+            Point2D.Double pos;
+            if (circuit instanceof ManhattanCircuit && car.getRoadId() != 0) {
+                ManhattanCircuit mc = (ManhattanCircuit) circuit;
+                int roadIdx = car.getRoadId() - 1;
+                pos = mc.getInnerRoadPosition(roadIdx, car.getLane(), car.getProgress(), w, h);
+            } else {
+                pos = circuit.getPosition(car.getLane(), car.getProgress(), w, h);
+            }
             car.setX((int) pos.x); car.setY((int) pos.y);
         }
     }
@@ -104,9 +111,19 @@ public class Traffic extends JPanel implements Runnable {
         for (TrafficLight tl : circuit.getTrafficLights()) tl.update();
         // Ensure carLists size matches laneCount (for Manhattan 3, Silverstone 3)
         while (carLists.size() < laneCount) carLists.add(new ArrayList<>());
-        // Build lane lengths map
+        // Build lane lengths map for outer circuit
         java.util.Map<Integer, Double> laneLengths = new java.util.HashMap<>();
         for (int lane=0; lane<laneCount; lane++) laneLengths.put(lane, circuit.getTotalLengthScreen(lane, w, h));
+        // Inner roads lengths for Manhattan (for roadId 1,2)
+        java.util.Map<Integer, java.util.Map<Integer, Double>> innerLengths = new java.util.HashMap<>();
+        if (circuit instanceof ManhattanCircuit) {
+            ManhattanCircuit mc = (ManhattanCircuit) circuit;
+            for (int r=0; r<mc.getInnerRoads().size(); r++) {
+                java.util.Map<Integer, Double> m = new java.util.HashMap<>();
+                for (int lane=0; lane<mc.getInnerRoads().get(r).laneCount; lane++) m.put(lane, mc.getInnerRoadLength(r, lane, w, h));
+                innerLengths.put(r+1, m);
+            }
+        }
 
         // Flatten all cars for global checks
         List<Car> allCars = carLists.stream().flatMap(List::stream).collect(Collectors.toList());
@@ -120,10 +137,15 @@ public class Traffic extends JPanel implements Runnable {
         sorted.sort((a,b) -> Double.compare(b.getProgress(), a.getProgress()));
 
         for (Car car : sorted) {
-            // car may have already been scheduled to change lane but still in old list for this iteration - use current lane
             int lane = car.getLane();
             if (lane <0) continue;
-            double totalLength = laneLengths.getOrDefault(lane, laneLengths.get(0));
+            int roadId = car.getRoadId();
+            double totalLength;
+            if (roadId==0) totalLength = laneLengths.getOrDefault(lane, laneLengths.get(0));
+            else {
+                java.util.Map<Integer, Double> m = innerLengths.get(roadId);
+                totalLength = (m!=null) ? m.getOrDefault(lane, 1000.0) : 1000.0;
+            }
             if (totalLength < 1e-6) continue;
 
             // Traffic lights and roundabouts update is handled once per tick outside loop
@@ -131,42 +153,44 @@ public class Traffic extends JPanel implements Runnable {
             if (lane == 0) car.resetLeftLaneTicks();
             else if (car.isOvertaking()) car.resetLeftLaneTicks();
 
-            List<Car> myLaneCars = getCarsInLane(lane);
+            List<Car> myLaneCars = getCarsInLaneForRoad(lane, roadId);
             Car ahead = findClosestAhead(car, myLaneCars, totalLength);
             double distToAhead = ahead != null ? arcDistance(car, ahead, totalLength) : Double.MAX_VALUE;
 
-            // French code - feux tricolores : arrêt au rouge, priorité à l'autre axe
+            // French code - feux tricolores : arrêt au rouge, priorité à l'autre axe (arrêt complet)
             boolean stoppedByLight = false;
             for (TrafficLight tl : circuit.getTrafficLights()) {
-                if (tl.shouldStop(car, totalLength, 18)) {
-                    double dLight = tl.distanceToLight(car, totalLength);
-                    if (dLight < 9) car.stopTrack();
-                    else if (dLight < 18) car.slowTrack();
+                double dLight = tl.distanceToLight(car, totalLength);
+                boolean redOrYellowShouldStop = tl.shouldStop(car, totalLength, 20);
+                if (redOrYellowShouldStop) {
+                    if (dLight < 3.5) car.forceStopAtLight();
+                    else if (dLight < 10) car.brakeTrack();
+                    else if (dLight < 20) car.slowTrack();
                     else car.slowTrack();
                     car.setOvertaking(false);
                     stoppedByLight = true;
-                    logger.debug("Car {} lane {} stopped at red light {} dist {:.1f}", car.getId(), lane, tl.getName(), dLight);
+                    logger.debug("Car {} lane {} stopped at red light {} dist {:.1f} state {}", car.getId(), lane, tl.getName(), dLight, tl.getState());
                     break;
+                }
+                // Anticipation: orange = ralentir si peut s'arreter à temps
+                if (tl.isYellow() && dLight > 8 && dLight < 25) {
+                    car.slowTrack();
                 }
             }
             if (stoppedByLight) continue;
 
-            // French code - ronds-points : céder le passage à ceux déjà dans l'anneau (priorité à gauche)
+            // French code - ronds-points : céder le passage à ceux déjà dans l'anneau (priorité à gauche / à l'intérieur)
             boolean yielding = false;
             for (Roundabout rb : circuit.getRoundabouts()) {
                 if (rb.shouldYield(car, allCars, totalLength)) {
                     double dEntry = rb.distanceToEntry(car, totalLength);
-                    if (dEntry < 10) car.stopTrack();
+                    if (dEntry < 4) car.forceStopAtLight();
+                    else if (dEntry < 12) car.brakeTrack();
                     else car.slowTrack();
                     car.setOvertaking(false);
                     yielding = true;
                     logger.debug("Car {} lane {} yielding at roundabout {} dist {:.1f}", car.getId(), lane, rb.getName(), dEntry);
                     break;
-                }
-                // If inside roundabout, ensure safe follow inside
-                if (rb.isInside(car)) {
-                    // Inside roundabout: treat as normal lane, but keep speed moderate
-                    // No special stop, just continue to next check
                 }
             }
             if (yielding) continue;
@@ -287,8 +311,7 @@ public class Traffic extends JPanel implements Runnable {
                             car.setOvertakeTarget(null);
                         }
                     } else {
-                        // Still overtaking, check ahead in left lane
-                        Car aheadLeft = findClosestAhead(car, getCarsInLane(lane), totalLength);
+                        Car aheadLeft = findClosestAhead(car, getCarsInLaneForRoad(lane, roadId), totalLength);
                         double distLeft = aheadLeft != null ? arcDistance(car, aheadLeft, totalLength) : Double.MAX_VALUE;
                         if (aheadLeft != null && distLeft < OVERTAKE_TRIGGER && car.getMaxSpeed() > aheadLeft.getMaxSpeed()) {
                             // Want to overtake further left
@@ -338,8 +361,7 @@ public class Traffic extends JPanel implements Runnable {
                     } else {
                         car.resetLeftLaneTicks();
                     }
-                    // Return blocked or no return lane -> check if need to overtake further in same left lane
-                    Car aheadLeft = findClosestAhead(car, getCarsInLane(lane), totalLength);
+                    Car aheadLeft = findClosestAhead(car, getCarsInLaneForRoad(lane, roadId), totalLength);
                     double distLeft = aheadLeft != null ? arcDistance(car, aheadLeft, totalLength) : Double.MAX_VALUE;
                     boolean wantsFurther = aheadLeft != null && distLeft < OVERTAKE_TRIGGER && car.getMaxSpeed() > aheadLeft.getMaxSpeed();
                     if (wantsFurther) {
@@ -443,6 +465,7 @@ public class Traffic extends JPanel implements Runnable {
         Car best = null; double bestDist = Double.MAX_VALUE;
         for (Car other : allCars) {
             if (other == me) continue;
+            if (other.getRoadId() != me.getRoadId()) continue;
             if (other.getLane() <= myLane) continue; // only lanes to the left (higher index)
             double d = arcDistance(me, other, totalLength);
             if (d < 1e-6 || d > totalLength * 0.5) continue; // only consider ahead within half lap
@@ -455,9 +478,16 @@ public class Traffic extends JPanel implements Runnable {
         if (lane <0 || lane >= carLists.size()) return new ArrayList<>();
         return carLists.get(lane);
     }
+    private List<Car> getCarsInLaneForRoad(int lane, int roadId) {
+        if (lane <0 || lane >= carLists.size()) return new ArrayList<>();
+        List<Car> all = carLists.get(lane);
+        List<Car> filtered = new ArrayList<>();
+        for (Car c : all) if (c.getRoadId()==roadId) filtered.add(c);
+        return filtered;
+    }
 
     private boolean isLaneFree(Car me, int targetLane, double targetTotalLength) {
-        List<Car> targetCars = getCarsInLane(targetLane);
+        List<Car> targetCars = getCarsInLaneForRoad(targetLane, me.getRoadId());
         if (targetCars.isEmpty()) return true;
         for (Car other : targetCars) {
             double delta = (other.getProgress() - me.getProgress() + 1.0) % 1.0;
@@ -476,7 +506,7 @@ public class Traffic extends JPanel implements Runnable {
     }
 
     private boolean isLaneFreeForReturn(Car me, int targetLane, double targetTotalLength) {
-        List<Car> targetCars = getCarsInLane(targetLane);
+        List<Car> targetCars = getCarsInLaneForRoad(targetLane, me.getRoadId());
         if (targetCars.isEmpty()) return true;
         for (Car other : targetCars) {
             double delta = (other.getProgress() - me.getProgress() + 1.0) % 1.0;
@@ -493,8 +523,7 @@ public class Traffic extends JPanel implements Runnable {
     }
 
     private boolean isLaneFreeForForcedReturn(Car me, int targetLane, double targetTotalLength) {
-        // Minimal safety for forced return after long stay left: only need gap not collision
-        List<Car> targetCars = getCarsInLane(targetLane);
+        List<Car> targetCars = getCarsInLaneForRoad(targetLane, me.getRoadId());
         if (targetCars.isEmpty()) return true;
         for (Car other : targetCars) {
             double delta = (other.getProgress() - me.getProgress() + 1.0) % 1.0;
@@ -507,7 +536,7 @@ public class Traffic extends JPanel implements Runnable {
     }
 
     private Car findBlockingCarForReturn(Car me, int targetLane, double targetTotalLength) {
-        List<Car> targetCars = getCarsInLane(targetLane);
+        List<Car> targetCars = getCarsInLaneForRoad(targetLane, me.getRoadId());
         if (targetCars.isEmpty()) return null;
         Car blocker = null; double bestDist = Double.MAX_VALUE;
         for (Car other : targetCars) {
@@ -537,6 +566,7 @@ public class Traffic extends JPanel implements Runnable {
             if (other == me) continue;
             if (!other.isOvertaking()) continue;
             if (other.getLane() != targetLane) continue;
+            if (other.getRoadId() != me.getRoadId()) continue;
             double delta = (other.getProgress() - me.getProgress() + 1.0) % 1.0;
             double distAhead = delta * targetLen;
             double distBehind = (1 - delta) * targetLen;

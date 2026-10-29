@@ -6,17 +6,19 @@ import java.util.List;
  * On Manhattan: placed at Columbus Circle and Times Square style corners.
  */
 public class Roundabout {
-    private final double centerProgress; // center of roundabout along track
-    private final double radiusProgress; // half-length of roundabout interval (e.g. 0.035 = ~7% of lap)
+    private final double centerProgress; // center of roundabout along road
+    private final double radiusProgress; // half-length of roundabout interval
     private final String name;
     private final double entryProgress; // yield line just before entering
+    private final int roadId; // 0=outer, 1=vertical,2=horizontal
 
-    public Roundabout(double centerProgress, double radiusProgress, String name) {
+    public Roundabout(double centerProgress, double radiusProgress, String name) { this(centerProgress, radiusProgress, name, 0); }
+    public Roundabout(double centerProgress, double radiusProgress, String name, int roadId) {
         this.centerProgress = ((centerProgress % 1.0) + 1.0) % 1.0;
         this.radiusProgress = Math.abs(radiusProgress);
         this.name = name;
-        // entry is just before roundabout interval
-        double entryDelta = radiusProgress + 0.015; // 1.5% before
+        this.roadId = roadId;
+        double entryDelta = radiusProgress + 0.015;
         this.entryProgress = ((centerProgress - entryDelta + 1.0) % 1.0);
     }
 
@@ -24,15 +26,18 @@ public class Roundabout {
     public String getName() { return name; }
     public double getEntryProgress() { return entryProgress; }
 
+    public int getRoadId(){return roadId;}
     /** Is car inside roundabout circulation? */
     public boolean isInside(Car car) {
+        if(car.getRoadId()!=roadId) return false;
         double delta = (car.getProgress() - centerProgress + 1.0) % 1.0;
-        if (delta > 0.5) delta = 1.0 - delta; // shortest circular distance
+        if (delta > 0.5) delta = 1.0 - delta;
         return delta < radiusProgress;
     }
 
     /** Distance from car to entry yield line */
     public double distanceToEntry(Car car, double totalLength) {
+        if(car.getRoadId()!=roadId) return Double.MAX_VALUE;
         double delta = (entryProgress - car.getProgress() + 1.0) % 1.0;
         return delta * totalLength;
     }

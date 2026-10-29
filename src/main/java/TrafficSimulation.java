@@ -87,22 +87,45 @@ public class TrafficSimulation {
         List<Car> rightLane = carLists.get(0);
         for (int i=0;i<total;i++) {
             double progress = (double)i / total;
-            // slight offset to avoid exact overlap, keep all on right lane initially
             float colorProgress = (float)i / Math.max(1,total-1);
             Color color = blendColors(FRACTIONS, COLORS, colorProgress);
-            // Vary speed: mix of slow/fast for overtaking demonstration
-            int baseSpeed = 4 + (i % 3); // 4,5,6 cycle to create speed differences
+            int baseSpeed = 4 + (i % 3);
             int maxSpeed = baseSpeed + (i % 2);
             if (maxSpeed>8) maxSpeed=8;
             if (maxSpeed<3) maxSpeed=3;
-            Car car = new Car(progress, 0, maxSpeed, color, i);
+            Car car = new Car(progress, 0, maxSpeed, color, i, 0);
             logger.info("Generated {} lane 0 (voie de droite) {}", circuit.getName(), car);
             rightLane.add(car);
         }
-        // Keep magenta distinctive car on right lane as well for variety
         if (total>0 && total<20) {
-            Car extra = new Car(0.53, 0, 7, new Color(255,50,230), total);
+            Car extra = new Car(0.53, 0, 7, new Color(255,50,230), total, 0);
             rightLane.add(extra);
+        }
+        // Add inner crossing roads for Manhattan - vrais intersections avec feux
+        if (circuit instanceof ManhattanCircuit) {
+            ManhattanCircuit mc = (ManhattanCircuit) circuit;
+            int nextId = total+1;
+            for (int roadIdx=0; roadIdx<mc.getInnerRoads().size(); roadIdx++) {
+                ManhattanCircuit.InnerRoad ir = mc.getInnerRoads().get(roadIdx);
+                int roadId = roadIdx+1; // 1=vertical, 2=horizontal
+                // generate 4 cars per inner road, split between 2 lanes
+                for (int i=0;i<4;i++) {
+                    double prog = (double)i/4 + (roadIdx*0.1);
+                    prog = prog % 1.0;
+                    int lane = i%2; // 0=right,1=left for 2-lane inner roads
+                    float cp = (float)i/4;
+                    Color col = blendColors(FRACTIONS, COLORS, cp);
+                    int baseSpeed = 4 + (i%2) + roadIdx;
+                    int maxSpeed = Math.min(8, baseSpeed+1);
+                    Car car = new Car(prog, lane, maxSpeed, col, nextId++, roadId);
+                    // add to appropriate lane list - need to ensure carLists has enough lanes for inner roads
+                    // inner roads have 2 lanes, reuse same lane indices but distinguish by roadId
+                    // Ensure carLists size covers max lane
+                    while (carLists.size() <= lane) carLists.add(new ArrayList<>());
+                    carLists.get(lane).add(car);
+                    logger.info("Generated inner {} lane {} {}", ir.name, lane, car);
+                }
+            }
         }
         return carLists;
     }
