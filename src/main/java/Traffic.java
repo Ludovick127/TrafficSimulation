@@ -565,7 +565,7 @@ public class Traffic extends JPanel implements Runnable {
             long left2Count = carLists.size()>2 ? carLists.get(2).size() : 0;
             long overtakingCount = carLists.stream().flatMap(List::stream).filter(Car::isOvertaking).count();
             g2.setFont(new Font("SansSerif", Font.BOLD, 11));
-            String hud = String.format("Voie de droite (exterieur) : %d  |  Voie de gauche: %d" + (left2Count>0 ? "  |  Voie 3: %d" : "") + "  |  Depassements: %d / %d", rightCount, leftCount, left2Count, overtakingCount, totalCars);
+            String hud = String.format("Voie de droite : %d  |  Voie de gauche: %d" + (left2Count>0 ? "  |  Voie 3: %d" : "") + "  |  Depassements: %d / %d", rightCount, leftCount, left2Count, overtakingCount, totalCars);
             fm = g2.getFontMetrics(); tw = fm.stringWidth(hud);
             g2.setColor(new Color(0,0,0,150));
             g2.fillRoundRect(w/2 - tw/2 -6, 52, tw+12, 16, 8,8);
@@ -573,7 +573,7 @@ public class Traffic extends JPanel implements Runnable {
             g2.drawString(hud, w/2 - tw/2, 64);
             // Legend
             g2.setFont(new Font("SansSerif", Font.PLAIN, 9));
-            String leg = "Voie de droite = exterieur (bordure exterieure, par defaut) - Voie de gauche = interieur (depassement uniquement)";
+            String leg = "Voie de droite = par defaut (interieur pour ce circuit) - Voie de gauche = depassement uniquement - rotation conservee (CCW Manhattan / CW Silverstone)";
             fm = g2.getFontMetrics(); tw = fm.stringWidth(leg);
             g2.setColor(new Color(0,0,0,120));
             g2.fillRoundRect(w/2 - tw/2 -5, h-20, tw+10, 14, 6,6);

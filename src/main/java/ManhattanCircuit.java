@@ -126,7 +126,10 @@ public class ManhattanCircuit implements Circuit {
         List<Point2D.Double> center = getCenterScreenPoints(panelWidth, panelHeight);
         if (center.isEmpty()) return center;
         if (lane <0 || lane>1) lane = 0;
-        double offset = (lane == 0 ? -LANE_SPACING/2 : LANE_SPACING/2); // -6, +6 for 2 lanes
+        // Inverted vs Silverstone due to opposite winding (Manhattan CCW vs Silverstone CW) - lane 0 = voie de droite
+        // Silverstone CW interior = right, Manhattan CCW exterior = right. To have same visual side as Silverstone's right (interior toward center), swap sign.
+        // Keeping same rotation (CCW) as requested, but fixing visual inversion.
+        double offset = (lane == 0 ? LANE_SPACING/2 : -LANE_SPACING/2); // +6, -6 - swapped to match Silverstone right side (interior toward center)
         if (offset==0) return center;
         return offsetPath(center, offset);
     }
