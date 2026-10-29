@@ -20,6 +20,10 @@ public class ManhattanCircuit implements Circuit {
     private static final double TOTAL_ROAD_WIDTH = 34.0;
     private static final double OUTER_BORDER_EXTRA = 4.0;
 
+    // City intersections with traffic lights and roundabouts - French code de la route
+    private final List<TrafficLight> trafficLights = new ArrayList<>();
+    private final List<Roundabout> roundabouts = new ArrayList<>();
+
     // Manhattan grid - realistic block sizes (approx 80m x 270m)
     private static final double[] AVENUES_X = {0, 180, 360, 540, 720, 900};
     private static final String[] AVENUE_NAMES = {"7th Ave", "6th Ave", "5th Ave", "Madison", "Park", "Lex"};
@@ -64,11 +68,26 @@ public class ManhattanCircuit implements Circuit {
             total += a.distance(b);
         }
         totalLengthM = total; // ~ 3500m, will scale
+
+        // Intersections with traffic lights - placed at 4 mid-side points along CW loop
+        // Progress calculated for CW rectangle: SW 0.0 -> NW 0.28 -> NE 0.5 -> SE 0.78 -> SW 1.0
+        trafficLights.add(new TrafficLight(0.14, "7th Ave & 50th St"));   // west side mid
+        trafficLights.add(new TrafficLight(0.39, "59th & 5th Ave"));      // north side mid
+        trafficLights.add(new TrafficLight(0.64, "Lex & 42nd St"));        // east side mid
+        trafficLights.add(new TrafficLight(0.889, "34th & 6th Ave"));     // south side mid
+
+        // Roundabouts - French priority to circulating vehicles (céder le passage)
+        // At NW corner Columbus Circle and NE corner
+        roundabouts.add(new Roundabout(0.28, 0.035, "Columbus Circle (7th & 59th)"));
+        roundabouts.add(new Roundabout(0.50, 0.035, "Grand Army Plaza (5th & 59th)"));
+        roundabouts.add(new Roundabout(0.05, 0.030, "Times Sq (7th & 42nd) - mini"));
     }
 
     @Override public String getName() { return "Manhattan - Midtown Loop"; }
     @Override public int getLaneCount() { return 3; }
     @Override public double getTotalLengthMeters() { return totalLengthM * 1.35; }
+    @Override public List<TrafficLight> getTrafficLights() { return trafficLights; }
+    @Override public List<Roundabout> getRoundabouts() { return roundabouts; }
 
     @Override
     public List<Point2D.Double> getCenterScreenPoints(int panelWidth, int panelHeight) {
@@ -370,6 +389,84 @@ public class ManhattanCircuit implements Circuit {
         g2.setColor(Color.WHITE);
         g2.draw(createPath(divA, true));
         g2.draw(createPath(divB, true));
+
+        // Roundabouts - draw as circular markings with yield triangles
+        for (Roundabout rb : roundabouts) {
+            Point2D.Double rc = getPosition(1, rb.getCenterProgress(), pw, ph);
+            double r = 18; // screen radius
+            // outer curb circle
+            g2.setColor(new Color(50,50,50));
+            g2.setStroke(new BasicStroke(3f));
+            g2.drawOval((int)(rc.x - r), (int)(rc.y - r), (int)(2*r), (int)(2*r));
+            g2.setColor(Color.WHITE);
+            g2.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 0, new float[]{5,4}, 0));
+            g2.drawOval((int)(rc.x - r + 2), (int)(rc.y - r + 2), (int)(2*r -4), (int)(2*r -4));
+            // center island
+            g2.setColor(new Color(90, 140, 80));
+            g2.fillOval((int)(rc.x - 7), (int)(rc.y - 7), 14, 14);
+            // yield arrow
+            g2.setColor(new Color(255, 200, 0));
+            g2.setFont(new Font("SansSerif", Font.BOLD, 8));
+            g2.drawString("↻", (int)rc.x -4, (int)rc.y +3);
+            // label
+            g2.setColor(new Color(255,255,255,200));
+            g2.setFont(new Font("SansSerif", Font.PLAIN, 7));
+            String rn = rb.getName();
+            if (rn.contains("Columbus")) rn="Columbus Circle";
+            else if (rn.contains("Grand")) rn="Grand Army";
+            else rn="Times Sq";
+            g2.drawString(rn, (int)rc.x - 22, (int)rc.y - (int)r - 4);
+        }
+
+        // Traffic lights - draw poles with 3 bulbs + stop line
+        for (TrafficLight tl : trafficLights) {
+            Point2D.Double pos = getPosition(1, tl.getProgress(), pw, ph);
+            double ang = getAngle(1, tl.getProgress(), pw, ph);
+            double perp = ang + Math.PI/2;
+            // stop line across road perpendicular
+            double halfW2 = TOTAL_ROAD_WIDTH/2 + 3;
+            int sx1 = (int)(pos.x + Math.cos(perp)*halfW2);
+            int sy1 = (int)(pos.y + Math.sin(perp)*halfW2);
+            int sx2 = (int)(pos.x - Math.cos(perp)*halfW2);
+            int sy2 = (int)(pos.y - Math.sin(perp)*halfW2);
+            // white stop line
+            g2.setColor(Color.WHITE);
+            g2.setStroke(new BasicStroke(2.2f));
+            g2.drawLine(sx1, sy1, sx2, sy2);
+            // traffic light pole - offset to side of road (right side for CW = interior toward center)
+            // For CW, interior is toward center, so pole on interior side
+            double poleDist = halfW2 + 8;
+            int px = (int)(pos.x + Math.cos(perp)*poleDist);
+            int py = (int)(pos.y + Math.sin(perp)*poleDist);
+            // pole
+            g2.setColor(new Color(40,40,40));
+            g2.fillRect(px-2, py-10, 4, 14);
+            // light housing
+            g2.setColor(Color.BLACK);
+            g2.fillRoundRect(px-6, py-18, 12, 20, 4,4);
+            // bulbs - light up according to state
+            Color redOn = new Color(255, 30, 30);
+            Color redOff = new Color(80, 20, 20);
+            Color yelOn = new Color(255, 220, 30);
+            Color yelOff = new Color(80, 70, 20);
+            Color greOn = new Color(30, 220, 30);
+            Color greOff = new Color(20, 70, 20);
+            g2.setColor(tl.isRed() ? redOn : redOff);
+            g2.fillOval(px-4, py-16, 8, 6);
+            g2.setColor(tl.isYellow() ? yelOn : yelOff);
+            g2.fillOval(px-4, py-10, 8, 6);
+            g2.setColor(tl.isGreen() ? greOn : greOff);
+            g2.fillOval(px-4, py-4, 8, 6);
+            // name small
+            g2.setColor(new Color(30,30,30,180));
+            g2.setFont(new Font("SansSerif", Font.PLAIN, 6));
+            String sn = tl.getName();
+            if (sn.contains("50th")) sn="50th";
+            else if (sn.contains("5th")) sn="5th Ave";
+            else if (sn.contains("42nd")) sn="42nd";
+            else if (sn.contains("6th")) sn="6th Ave";
+            g2.drawString(sn, px+8, py-6);
+        }
 
         // Start/finish line at 34th & 7th SW (first point) - across 3 lanes
         Point2D.Double start=getPosition(1, 0.0, pw, ph); // center lane

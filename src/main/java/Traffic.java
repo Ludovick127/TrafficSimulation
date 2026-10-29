@@ -100,7 +100,9 @@ public class Traffic extends JPanel implements Runnable {
         int w = getWidth(), h = getHeight();
         if (w <= 10 || h <= 10) return;
         int laneCount = circuit.getLaneCount();
-        // Ensure carLists size matches laneCount (for Manhattan 2, Silverstone 3)
+        // Update traffic lights (feux aléatoires) - each light cycles independently
+        for (TrafficLight tl : circuit.getTrafficLights()) tl.update();
+        // Ensure carLists size matches laneCount (for Manhattan 3, Silverstone 3)
         while (carLists.size() < laneCount) carLists.add(new ArrayList<>());
         // Build lane lengths map
         java.util.Map<Integer, Double> laneLengths = new java.util.HashMap<>();
@@ -124,6 +126,7 @@ public class Traffic extends JPanel implements Runnable {
             double totalLength = laneLengths.getOrDefault(lane, laneLengths.get(0));
             if (totalLength < 1e-6) continue;
 
+            // Traffic lights and roundabouts update is handled once per tick outside loop
             // Reset left-lane counter when not illegitimately in left lane
             if (lane == 0) car.resetLeftLaneTicks();
             else if (car.isOvertaking()) car.resetLeftLaneTicks();
@@ -131,6 +134,42 @@ public class Traffic extends JPanel implements Runnable {
             List<Car> myLaneCars = getCarsInLane(lane);
             Car ahead = findClosestAhead(car, myLaneCars, totalLength);
             double distToAhead = ahead != null ? arcDistance(car, ahead, totalLength) : Double.MAX_VALUE;
+
+            // French code - feux tricolores : arrêt au rouge, priorité à l'autre axe
+            boolean stoppedByLight = false;
+            for (TrafficLight tl : circuit.getTrafficLights()) {
+                if (tl.shouldStop(car, totalLength, 18)) {
+                    double dLight = tl.distanceToLight(car, totalLength);
+                    if (dLight < 9) car.stopTrack();
+                    else if (dLight < 18) car.slowTrack();
+                    else car.slowTrack();
+                    car.setOvertaking(false);
+                    stoppedByLight = true;
+                    logger.debug("Car {} lane {} stopped at red light {} dist {:.1f}", car.getId(), lane, tl.getName(), dLight);
+                    break;
+                }
+            }
+            if (stoppedByLight) continue;
+
+            // French code - ronds-points : céder le passage à ceux déjà dans l'anneau (priorité à gauche)
+            boolean yielding = false;
+            for (Roundabout rb : circuit.getRoundabouts()) {
+                if (rb.shouldYield(car, allCars, totalLength)) {
+                    double dEntry = rb.distanceToEntry(car, totalLength);
+                    if (dEntry < 10) car.stopTrack();
+                    else car.slowTrack();
+                    car.setOvertaking(false);
+                    yielding = true;
+                    logger.debug("Car {} lane {} yielding at roundabout {} dist {:.1f}", car.getId(), lane, rb.getName(), dEntry);
+                    break;
+                }
+                // If inside roundabout, ensure safe follow inside
+                if (rb.isInside(car)) {
+                    // Inside roundabout: treat as normal lane, but keep speed moderate
+                    // No special stop, just continue to next check
+                }
+            }
+            if (yielding) continue;
 
             // French code: interdiction de doubler par la droite - any lane except leftmost must not overtake on right
             Car leftAheadForRight = null;

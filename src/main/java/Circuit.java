@@ -1,5 +1,6 @@
 import java.awt.Graphics2D;
 import java.awt.geom.Point2D;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -16,4 +17,6 @@ public interface Circuit {
     void draw(Graphics2D g2, int panelWidth, int panelHeight);
     String getInfo(int totalCars);
     int getLaneCount();
+    default List<TrafficLight> getTrafficLights() { return Collections.emptyList(); }
+    default List<Roundabout> getRoundabouts() { return Collections.emptyList(); }
 }
